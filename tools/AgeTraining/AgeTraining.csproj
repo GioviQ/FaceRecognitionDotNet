@@ -7,6 +7,7 @@
     <Description>Example of FaceRecognitionDotNet</Description>
     <Company />
     <Configurations>Debug;Release</Configurations>
+    <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
   <ItemGroup>
