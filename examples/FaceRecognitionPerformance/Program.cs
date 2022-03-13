@@ -15,6 +15,7 @@ namespace FaceRecognitionPerformance
 
         private const string FaceModelsPath = @"D:\FaceModels";
         private const int maxImagesToLoad = 10000;
+        private const double tolerance = 0.5;
 
         private static Dictionary<string, (string FileName, FaceEncoding FaceEncoding)> faceEncodings = new Dictionary<string, (string, FaceEncoding)>();
         private static Dictionary<string, (string Id, FaceEncoding FaceEncoding)> testEncodings = new Dictionary<string, (string, FaceEncoding)>();
@@ -55,6 +56,8 @@ namespace FaceRecognitionPerformance
             testEncodings = JsonConvert.DeserializeObject<Dictionary<string, (string Id, FaceEncoding FaceEncoding)>>(File.ReadAllText($@"{FaceModelsPath}\TestFaceEncodings.dat"));
 
             int successful = 0;
+            int falsePositive = 0;
+            int falseNegative = 0;
 
             foreach (var encodingToCheck in testEncodings)
             {
@@ -72,26 +75,34 @@ namespace FaceRecognitionPerformance
                 {
                     Console.Write($"Face recognition successful for identity {identity}");
 
-                    if (min.v <= 0.6)
+                    if (min.v <= tolerance)
                     {
                         Console.WriteLine($" - distance {min.v} - {faceEncodings[identity].FileName} {encodingToCheck.Key}");
                         successful++;
                     }
                     else
+                    {
                         Console.WriteLine($" - distance {min.v} - {faceEncodings[identity].FileName} {encodingToCheck.Key} but above tolerance");
+                        falseNegative++;
+                    }
                 }
                 else
                 {
                     Console.Write($"Face recognition failed for identity {identity}");
 
-                    if (min.v <= 0.6)
+                    if (min.v <= tolerance)
+                    {
                         Console.WriteLine($" - distance {min.v} - {faceEncodings[identity].FileName} {encodingToCheck.Key} ************ DANGER !");
+                        falsePositive++;
+                    }
                     else
                         Console.WriteLine($" - distance {min.v} - {faceEncodings[identity].FileName} {encodingToCheck.Key}");
                 }
             }
 
             Console.WriteLine($"Face recognition successful for {successful} / {testEncodings.Count()} = {successful / (double)testEncodings.Count():P2}");
+            Console.WriteLine($"Danger: false positive {falsePositive}");
+            Console.WriteLine($"Oops: false negative {falseNegative}");
         }
         private static void ProcessImage(Dictionary<string, string> identities, FaceRecognition fr, string file)
         {
