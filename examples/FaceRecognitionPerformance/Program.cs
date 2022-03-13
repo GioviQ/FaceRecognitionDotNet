@@ -14,17 +14,23 @@ namespace FaceRecognitionPerformance
         //Photo faces from http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html (no form to fullfill)
 
         private const string FaceModelsPath = @"D:\FaceModels";
+        private const int maxImagesToLoad = 10000;
 
-        private static Dictionary<string, FaceEncoding> faceEncodings = new Dictionary<string, FaceEncoding>();
-        private static Dictionary<string, FaceEncoding> testEncodings = new Dictionary<string, FaceEncoding>();
+        private static Dictionary<string, (string FileName, FaceEncoding FaceEncoding)> faceEncodings = new Dictionary<string, (string, FaceEncoding)>();
+        private static Dictionary<string, (string Id, FaceEncoding FaceEncoding)> testEncodings = new Dictionary<string, (string, FaceEncoding)>();
         private static Dictionary<int, FaceRecognition> frs = new Dictionary<int, FaceRecognition>();
         static void Main(string[] args)
         {
+            var option = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = Environment.ProcessorCount
+            };
+
             var identities = File.ReadAllLines($@"{FaceModelsPath}\identity_CelebA.txt").ToDictionary(k => k.Split(' ')[0], v => v.Split(' ')[1]);
 
             if (!File.Exists($@"{FaceModelsPath}\FaceEncodings.dat"))
             {
-                Parallel.ForEach(Directory.GetFiles(@"D:\img_align_celeba"), file =>
+                Parallel.ForEach(Directory.GetFiles(@"D:\img_align_celeba").Take(maxImagesToLoad), option, file =>
                   {
                       var id = Thread.CurrentThread.ManagedThreadId;
 
@@ -44,50 +50,48 @@ namespace FaceRecognitionPerformance
                 File.WriteAllText($@"{FaceModelsPath}\FaceEncodings.dat", JsonConvert.SerializeObject(faceEncodings));
                 File.WriteAllText($@"{FaceModelsPath}\TestFaceEncodings.dat", JsonConvert.SerializeObject(testEncodings));
             }
-            else
+
+            faceEncodings = JsonConvert.DeserializeObject<Dictionary<string, (string FileName, FaceEncoding FaceEncoding)>>(File.ReadAllText($@"{FaceModelsPath}\FaceEncodings.dat"));
+            testEncodings = JsonConvert.DeserializeObject<Dictionary<string, (string Id, FaceEncoding FaceEncoding)>>(File.ReadAllText($@"{FaceModelsPath}\TestFaceEncodings.dat"));
+
+            int successful = 0;
+
+            foreach (var encodingToCheck in testEncodings)
             {
-                faceEncodings = JsonConvert.DeserializeObject<Dictionary<string, FaceEncoding>>(File.ReadAllText($@"{FaceModelsPath}\FaceEncodings.dat"));
-                testEncodings = JsonConvert.DeserializeObject<Dictionary<string, FaceEncoding>>(File.ReadAllText($@"{FaceModelsPath}\TestFaceEncodings.dat"));
+                var distances = FaceRecognition.FaceDistances(faceEncodings.Values.Select(i => i.FaceEncoding), encodingToCheck.Value.FaceEncoding);
 
-                int successful = 0;
+                var min = distances
+                    .Select((v, index) => new { v, index })
+                    .FirstOrDefault(v => v.v == distances.Min());
 
-                foreach (var encodingToCheck in testEncodings)
+                var identityToCheck = encodingToCheck.Value.Id;
+
+                var identity = faceEncodings.Keys.ToList()[min.index];
+
+                if (identityToCheck == identity)
                 {
-                    var distances = FaceRecognition.FaceDistances(faceEncodings.Values, encodingToCheck.Value);
+                    Console.Write($"Face recognition successful for identity {identity}");
 
-                    var min = distances
-                        .Select((v, index) => new { v, index })
-                        .FirstOrDefault(v => v.v == distances.Min());
-
-                    var identityToCheck = identities[encodingToCheck.Key];
-
-                    var identity = faceEncodings.Keys.ToList()[min.index];
-
-                    if (identityToCheck == identity)
+                    if (min.v <= 0.6)
                     {
-                        Console.Write($"Face recognition successful for identity {identity}");
-
-                        if (min.v <= 0.6)
-                        {
-                            Console.WriteLine($" - distance {min.v}");
-                            successful++;
-                        }
-                        else
-                            Console.WriteLine($" - distance {min.v} but above tolerance");
+                        Console.WriteLine($" - distance {min.v} - {faceEncodings[identity].FileName} {encodingToCheck.Key}");
+                        successful++;
                     }
                     else
-                    {
-                        Console.Write($"Face recognition failed for identity {identity}");
-
-                        if (min.v <= 0.6)
-                            Console.WriteLine($" - distance {min.v} - {encodingToCheck.Key} ************ DANGER !");
-                        else
-                            Console.WriteLine($" - distance {min.v}");
-                    }
+                        Console.WriteLine($" - distance {min.v} - {faceEncodings[identity].FileName} {encodingToCheck.Key} but above tolerance");
                 }
+                else
+                {
+                    Console.Write($"Face recognition failed for identity {identity}");
 
-                Console.WriteLine($"Face recognition successful for {successful} / {testEncodings.Count()}");
+                    if (min.v <= 0.6)
+                        Console.WriteLine($" - distance {min.v} - {faceEncodings[identity].FileName} {encodingToCheck.Key} ************ DANGER !");
+                    else
+                        Console.WriteLine($" - distance {min.v} - {faceEncodings[identity].FileName} {encodingToCheck.Key}");
+                }
             }
+
+            Console.WriteLine($"Face recognition successful for {successful} / {testEncodings.Count()} = {successful / (double)testEncodings.Count():P2}");
         }
         private static void ProcessImage(Dictionary<string, string> identities, FaceRecognition fr, string file)
         {
@@ -113,10 +117,10 @@ namespace FaceRecognitionPerformance
                     {
                         Console.WriteLine($"Face encoding for identity {id} already present");
 
-                        testEncodings.Add(fileName, encoding);
+                        testEncodings.Add(fileName, (Id: id, FaceEncoding: encoding));
                     }
                     else
-                        faceEncodings.Add(id, encoding);
+                        faceEncodings.Add(id, (FileName: fileName, FaceEncoding: encoding));
                 }
             }
         }
